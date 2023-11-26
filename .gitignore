@@ -1,0 +1,14 @@
+*
+!*/
+!*.*
+*.ppu
+*.tpu
+*.exe
+*.exe.*
+*.o
+*.a
+*.log
+gmon.out
+node_modules/
+backup/
+mongo/
