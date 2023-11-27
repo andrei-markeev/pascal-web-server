@@ -26,6 +26,7 @@ type
         method: (methodUnknown, methodGET, methodPOST, methodPUT, methodPATCH, methodDELETE);
         contentLength: integer;
         body: string;
+        bodyBytesRead: integer;
         headers: array of THeader;
     end;
 
@@ -54,6 +55,7 @@ begin
     freeFrom := 0;
     request.state := reqParsingStart;
     request.contentLength := 0;
+    request.bodyBytesRead := 0;
 end;
 
 procedure TRequestHandler.Error(const msg: string; socket:TLSocket);
@@ -66,23 +68,27 @@ var
     availableSize: TBufferPos;
     bytesRead: TBufferPos;
 begin
-    if parseFrom > 0 then
-    begin
-        move(buffer[parseFrom], buffer, freeFrom - parseFrom);
-        dec(freeFrom, parseFrom);
-        parseFrom := 0;
-    end;
+    repeat
 
-    availableSize := BUFFER_SIZE_BYTES - freeFrom;
+        if parseFrom > 0 then
+        begin
+            move(buffer[parseFrom], buffer, freeFrom - parseFrom);
+            dec(freeFrom, parseFrom);
+            parseFrom := 0;
+        end;
 
-    if availableSize > 0 then
-    begin
-        bytesRead := socket.Get(buffer[freeFrom], availableSize);
-        if bytesRead = 0 then exit;
-        inc(freeFrom, bytesRead);
-    end;
+        availableSize := BUFFER_SIZE_BYTES - freeFrom;
 
-    ParseBuffer(socket);
+        if availableSize > 0 then
+        begin
+            bytesRead := socket.Get(buffer[freeFrom], availableSize);
+            if bytesRead = 0 then exit;
+            inc(freeFrom, bytesRead);
+        end;
+
+        ParseBuffer(socket);
+
+    until (bytesRead < availableSize) and (parseFrom = freeFrom) or (i > 10);
 end;
 
 procedure TRequestHandler.ParseBuffer(socket: TLSocket);
@@ -96,7 +102,34 @@ var
     headerName: string;
     headerValue: string;
     headersLength: integer;
+    needToRead: integer;
 begin
+
+    if request.state = reqReadingBody then
+    begin
+
+        if request.contentLength - request.bodyBytesRead < freeFrom - parseFrom then
+            needToRead := request.contentLength - request.bodyBytesRead
+        else
+            needToRead := freeFrom - parseFrom;
+
+        Move(buffer[parseFrom], request.body[request.bodyBytesRead], needToRead - 1);
+        inc(request.bodyBytesRead, needToRead);
+        inc(parseFrom, needToRead);
+
+        if request.bodyBytesRead >= request.contentLength then
+        begin
+            if assigned(requestParsedCallback) then
+                requestParsedCallback(request, socket);
+            request.state := reqParsingStart;
+            request.contentLength := 0;
+            request.bodyBytesRead := 0;
+            SetLength(request.headers, 0);
+        end;
+
+        exit;
+    end;
+
     headersLength := Length(request.headers);
 
     colonPos := -1;
@@ -160,12 +193,16 @@ begin
                             request.contentLength := 0;
                             SetLength(request.headers, 0);
                             parseFrom := i + 1;
+                            exit;
                         end
                         else
                         begin
-                            SetString(request.body, PChar(@buffer[i + 1]), freeFrom - (i + 1));
+                            SetLength(request.body, request.contentLength);
+                            Move(buffer[i + 1], request.body[1], freeFrom - (i + 1));
+                            request.bodyBytesRead := freeFrom - (i + 1);
                             request.state := reqReadingBody;
                             parseFrom := freeFrom;
+                            exit;
                         end;
                     end
                     else if colonPos > -1 then

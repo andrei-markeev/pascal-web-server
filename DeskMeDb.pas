@@ -6,13 +6,10 @@ unit DeskMeDb;
 interface
 
 uses
-    libmongoc, MongoDbCollection, DbSchema;
-
-const
-    MONGO_URL = 'mongodb://localhost';
+    libmongoc, MongoDbCollection, DbSchema, MongoUrl;
 
 type
-    TDeskDbPool = class
+    TDeskMeDbPool = class
     private
         uri: pmongoc_uri_t;
     public
@@ -30,13 +27,13 @@ type
         client: pmongoc_client_t;
     public
         Locations: TOfficeLocationCollection;
-        constructor Create(deskmePool: TDeskDbPool);
+        constructor Create(deskmePool: TDeskMeDbPool);
         destructor Destroy; override;
     end;
 
 implementation
 
-constructor TDeskDbPool.Create;
+constructor TDeskMeDbPool.Create;
 begin
     mongoc_init;
     uri := mongoc_uri_new(MONGO_URL);
@@ -45,7 +42,7 @@ begin
     //mongoc_client_pool_set_error_api(pool, 2);
 end;
 
-destructor TDeskDbPool.Destroy;
+destructor TDeskMeDbPool.Destroy;
 begin
     //mongoc_client_pool_destroy(pool);
     mongoc_client_destroy(client);
@@ -54,7 +51,7 @@ begin
     inherited;
 end;
 
-constructor TDeskMeDatabase.Create(deskmePool: TDeskDbPool);
+constructor TDeskMeDatabase.Create(deskmePool: TDeskMeDbPool);
 begin
     //pool := deskmePool.pool;
     //client := mongoc_client_pool_pop(pool);

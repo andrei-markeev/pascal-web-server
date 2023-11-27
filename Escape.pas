@@ -29,7 +29,12 @@ begin
         case s[i] of 
             '"', '\', #0..#31: if (s[i] in ['"', '\', #8, #9, #10, #12, #13]) then inc(resLen) else inc(resLen, 5);
         end;
-    if len = resLen then exit;
+
+    if len = resLen then
+    begin
+        EscapeJsonString := s;
+        exit;
+    end;
 
     SetLength(EscapeJsonString, resLen);
 

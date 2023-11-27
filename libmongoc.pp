@@ -41,6 +41,8 @@ const
     BSON_SUBTYPE_USER = $80;
 
 type
+    ppcuint8 = ^pcuint8;
+
     pbson_t = ^bson_t;
     bson_t = array [0..127] of cuint8;
 
@@ -135,13 +137,17 @@ procedure mongoc_collection_destroy(collection: pmongoc_collection_t); cdecl; ex
 
 function mongoc_cursor_next(cursor: pmongoc_cursor_t; doc: pbson_t): cbool; cdecl; external 'libmongoc-1.0' name 'mongoc_cursor_next';
 procedure mongoc_cursor_destroy(cursor: pmongoc_cursor_t); cdecl; external 'libmongoc-1.0' name 'mongoc_cursor_destroy';
-function bson_iter_init (iter: pbson_iter_t; bson: pbson_t): cbool; cdecl; external 'libmongoc-1.0' name 'bson_iter_init';
-function bson_iter_next (iter: pbson_iter_t): cbool; cdecl; external 'libmongoc-1.0' name 'bson_iter_next';
+function bson_iter_init(iter: pbson_iter_t; bson: pbson_t): cbool; cdecl; external 'libmongoc-1.0' name 'bson_iter_init';
+function bson_iter_recurse(iter: pbson_iter_t; child: pbson_iter_t): cbool; cdecl; external 'libmongoc-1.0' name 'bson_iter_recurse';
+function bson_iter_next(iter: pbson_iter_t): cbool; cdecl; external 'libmongoc-1.0' name 'bson_iter_next';
 function bson_iter_key(iter: pbson_iter_t): pchar; cdecl; external 'libmongoc-1.0' name 'bson_iter_key';
 function bson_iter_type(iter: pbson_iter_t): bson_type_t; cdecl; external 'libmongoc-1.0' name 'bson_iter_type';
 function bson_iter_int32(iter: pbson_iter_t): cint32; cdecl; external 'libmongoc-1.0' name 'bson_iter_int32';
+function bson_iter_int64(iter: pbson_iter_t): cint64; cdecl; external 'libmongoc-1.0' name 'bson_iter_int64';
+function bson_iter_double(iter: pbson_iter_t): cdouble; cdecl; external 'libmongoc-1.0' name 'bson_iter_double';
 function bson_iter_bool(iter: pbson_iter_t): cbool; cdecl; external 'libmongoc-1.0' name 'bson_iter_bool';
 function bson_iter_utf8(iter: pbson_iter_t; len: pcuint32): pchar; cdecl; external 'libmongoc-1.0' name 'bson_iter_utf8';
+procedure bson_iter_document(iter: pbson_iter_t; document_len: pcuint32; document: ppcuint8); cdecl; external 'libmongoc-1.0' name 'bson_iter_document';
 
 implementation
 

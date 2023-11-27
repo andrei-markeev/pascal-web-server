@@ -3,10 +3,20 @@ program server_ltcp;
 {$longstrings on}
 
 uses
+    {$ifdef UNIX}cthreads,{$endif}
     crt, sysutils, lnet, libmongoc, RequestHandler, DbSchema, DeskMeDb;
 
 var
-    pool: TDeskDbPool;
+    pool: TDeskMeDbPool;
+
+function Max(a, b: integer): integer;
+begin
+    if a > b then Max := a else Max := b;
+end;
+function Min(a, b: integer): integer;
+begin
+    if a < b then Min := a else Min := b;
+end;
 
 procedure ProcessRequest(request: TRequest; socket: TLSocket);
 var
@@ -16,6 +26,7 @@ var
     db: TDeskMeDatabase;
     officeLocation: TOfficeLocation;
     query: pbson_t;
+    p: integer;
 begin
     case request.url of
         '/hello':
@@ -41,11 +52,12 @@ begin
                 name := 'New \" location""';
                 address := 'Very Long Address String that contains a lot of information and even instructions, which might be relevant but might not be relevant - who knows, but they''re still there, because the company is trying to use address field for providing additional information in the notificaiton emails.';
                 email := 'newLocation@myCompany.com';
-                latitude := 1234;
-                longitude := 4321;
+                latitude := 12.34;
+                longitude := 43.21;
                 sendICalNotifications := false;
                 notificationEmail := '"notify'#13#10'@myCompany.com"';
-                with options do
+                options := new(PPlaceOptions);
+                with options^ do
                 begin
                     availableFromHour := 8;
                     availableUntilHour := 17;
@@ -56,6 +68,8 @@ begin
             end;
 
             json := serializeOfficeLocation(officeLocation);
+
+            dispose(officeLocation.options);
 
             body := 'HTTP/1.1 200' + CRLF
                 + 'Content-type: application/json' + CRLF
@@ -93,7 +107,26 @@ begin
             bson_destroy(query);
             db.Free;
 
-            html := serializeOfficeLocation(officeLocation);
+            html := '<!DOCTYPE html><html><h1>' + officeLocation.name + '</h1><p>This location''s address is: ' + officeLocation.address + '</p></html>';
+
+            body := 'HTTP/1.1 200' + CRLF
+                + 'Content-type: text/html' + CRLF
+                + 'Content-length: ' + IntToStr(Length(html)) + CRLF
+                + CRLF
+                + html;
+
+            socket.SendMessage(body);
+        end;
+        '/ipsum':
+        begin
+            html := '<html><body><h1>Ipsum finder</h1><ol>';
+            p := 1;
+            repeat
+                p := pos('ipsum', request.body, p + 1);
+                if p > 0 then
+                    html := html + '<li>Found "ipsum" at ' + IntToStr(p) + ', near "' + copy(request.body, Max(1, p - 15), Min(25, Length(request.body))) + '</li>';
+            until p = 0;
+            html := html + '</ol></body></html>';
 
             body := 'HTTP/1.1 200' + CRLF
                 + 'Content-type: text/html' + CRLF
@@ -124,7 +157,7 @@ begin
 
     if not server.Listen(3000) then exit else Writeln('Listening on port 3000');
 
-    pool := TDeskDbPool.Create;
+    pool := TDeskMeDbPool.Create;
 
     repeat
         server.CallAction;

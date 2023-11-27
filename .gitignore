@@ -8,7 +8,9 @@
 *.o
 *.a
 *.log
+*.rest
 gmon.out
 node_modules/
 backup/
 mongo/
+build/

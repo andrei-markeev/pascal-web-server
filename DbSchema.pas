@@ -10,6 +10,7 @@ uses
 type
     TWorkDays = array of shortstring;
 
+    PPlaceOptions = ^TPlaceOptions;
     TPlaceOptions = record
         availableFromHour: integer;
         availableUntilHour: integer;
@@ -26,22 +27,17 @@ type
         tenantId: string;
         name: string;
         address: string;
-        latitude: integer;
-        longitude: integer;
+        latitude: double;
+        longitude: double;
         email: string;
         phone: string;
         notificationEmail: string;
         cateringOrderEmail: string;
         sendICalNotifications: boolean;
-        options: TPlaceOptions;
+        options: PPlaceOptions;
     end;
 
-function serializeWorkDays(wd: TWorkDays): string;
-function serializePlaceOptions(po: TPlaceOptions): string;
 function serializeOfficeLocation(ol: TOfficeLocation): string;
-
-function parseWorkDaysFromBson(doc: pbson_t): TWorkDays;
-function parsePlaceOptionsFromBson(doc: pbson_t): TPlaceOptions;
 function parseOfficeLocationFromBson(doc: pbson_t): TOfficeLocation;
 
 implementation
@@ -105,17 +101,23 @@ begin
 
     with po do
     begin
-        size := 5;
+        size := 1;
+        if (availableFromHour <> 0) or (availableUntilHour <> 0) then inc(size, 4);
         if Length(altSchedule) > 0 then inc(size, 6);
         if (workStartHour > 0) or (workEndHour > 0) then inc(size, 4);
         SetLength(strings, size);
 
-        strings[0] := '{"availableFromHour":';
-        strings[1] := IntToStr(availableFromHour);
-        strings[2] := ',"availableUntilHour":';
-        strings[3] := IntToStr(availableUntilHour);
+        n := 0;
 
-        n := 4;
+        if (availableFromHour <> 0) or (availableUntilHour <> 0) then
+        begin
+            strings[n] := ',"availableFromHour":';
+            strings[n + 1] := IntToStr(availableFromHour);
+            strings[n + 2] := ',"availableUntilHour":';
+            strings[n + 3] := IntToStr(availableUntilHour);
+            inc(n, 4);
+        end;
+
         if Length(altSchedule) > 0 then
         begin
             strings[n] := ',"altSchedule":';
@@ -135,6 +137,7 @@ begin
             inc(n, 4);
         end;
 
+        strings[0, 1] := '{';
         strings[n] := '}';
     end;
 
@@ -149,12 +152,13 @@ var
 begin
     with ol do
     begin
-        size := 14;
+        size := 12;
         if (latitude > 0) and (longitude > 0) then inc(size, 4);
         if Length(email) <> 0 then inc(size, 3);
         if Length(phone) <> 0 then inc(size, 3);
         if Length(notificationEmail) <> 0 then inc(size, 3);
         if Length(cateringOrderEmail) <> 0 then inc(size, 3);
+        if options <> nil then inc(size, 2);
         SetLength(strings, size);
 
         strings[0] := '{"_id":"';
@@ -171,9 +175,9 @@ begin
         if (latitude > 0) and (longitude > 0) then
         begin
             strings[n] := ',"latitude":';
-            strings[n + 1] := IntToStr(latitude);
+            strings[n + 1] := FloatToStr(latitude);
             strings[n + 2] := ',"longitude":';
-            strings[n + 3] := IntToStr(longitude);
+            strings[n + 3] := FloatToStr(longitude);
             inc(n, 4);
         end;
 
@@ -209,11 +213,16 @@ begin
             inc(n, 3)
         end;
 
+        if options <> nil then
+        begin
+            strings[n] := ',"options":';
+            strings[n + 1] := serializePlaceOptions(options^);
+            inc(n, 2)
+        end;
+
         strings[n] := ',"sendICalNotifications":';
         strings[n + 1] := BoolToStr(sendICalNotifications,'true','false');
-        strings[n + 2] := ',"options":';
-        strings[n + 3] := serializePlaceOptions(options);
-        strings[n + 4] := '}';
+        strings[n + 2] := '}';
 
         serializeOfficeLocation := FastConcat(strings);
     end;
@@ -223,29 +232,75 @@ function parseWorkDaysFromBson(doc: pbson_t): TWorkDays;
 begin
 end;
 
-function parsePlaceOptionsFromBson(doc: pbson_t): TPlaceOptions;
+function parsePlaceOptionsFromBson(iter: bson_iter_t): TPlaceOptions;
+var
+    key: shortstring;
 begin
+    FillChar(parsePlaceOptionsFromBson, SizeOf(TPlaceOptions), 0);
+    while bson_iter_next(@iter) do
+    begin
+        key := bson_iter_key(@iter);
+        case key of
+            'availableFromHour': parsePlaceOptionsFromBson.availableFromHour := bson_iter_int32(@iter);
+            'availableUntilHour': parsePlaceOptionsFromBson.availableUntilHour := bson_iter_int32(@iter);
+            'altAvailableFromHour': parsePlaceOptionsFromBson.altAvailableFromHour := bson_iter_int32(@iter);
+            'altAvailableUntilHour': parsePlaceOptionsFromBson.altAvailableUntilHour := bson_iter_int32(@iter);
+            'workStartHour': parsePlaceOptionsFromBson.workStartHour := bson_iter_int32(@iter);
+            'workEndHour': parsePlaceOptionsFromBson.workEndHour := bson_iter_int32(@iter);
+            // TODO: altSchedule
+        end;
+    end;
 end;
 
 function parseOfficeLocationFromBson(doc: pbson_t): TOfficeLocation;
 var
     iter: bson_iter_t;
+    optionsIter: bson_iter_t;
     key: shortstring;
+    bsonType: bson_type_t;
 begin
     FillChar(parseOfficeLocationFromBson, SizeOf(TOfficeLocation), 0);
     if not bson_iter_init(@iter, doc) then exit;
 
-    while (bson_iter_next (@iter)) do
+    while bson_iter_next(@iter) do
     begin
         key := bson_iter_key(@iter);
-        case key of
-            '_id': parseOfficeLocationFromBson._id := bson_iter_utf8(@iter, nil);
-            'tenantId': parseOfficeLocationFromBson.tenantId := bson_iter_utf8(@iter, nil);
-            'name': parseOfficeLocationFromBson.name := bson_iter_utf8(@iter, nil);
-            'address': parseOfficeLocationFromBson.address := bson_iter_utf8(@iter, nil);
-            'email': parseOfficeLocationFromBson.email := bson_iter_utf8(@iter, nil);
-            'phone': parseOfficeLocationFromBson.phone := bson_iter_utf8(@iter, nil);
-        end;
+        //bsonType := bson_iter_type(@iter);
+        //WriteLn('key=', key, ' type=', HexStr(bsonType, 2));
+
+        with parseOfficeLocationFromBson do
+            case key of
+                '_id': _id := bson_iter_utf8(@iter, nil);
+                'tenantId': tenantId := bson_iter_utf8(@iter, nil);
+                'name': name := bson_iter_utf8(@iter, nil);
+                'address': address := bson_iter_utf8(@iter, nil);
+                'email':
+                    if bson_iter_type(@iter) = BSON_TYPE_NULL then
+                        email := ''
+                    else
+                        email := bson_iter_utf8(@iter, nil);
+                'phone':
+                    if bson_iter_type(@iter) = BSON_TYPE_NULL then
+                        phone := ''
+                    else
+                        phone := bson_iter_utf8(@iter, nil);
+                'latitude':
+                    if bson_iter_type(@iter) = BSON_TYPE_NULL then
+                        latitude := 0
+                    else
+                        latitude := bson_iter_double(@iter);
+                'longitude':
+                    if bson_iter_type(@iter) = BSON_TYPE_NULL then
+                        longitude := 0
+                    else
+                        longitude := bson_iter_double(@iter);
+                'options':
+                    if bson_iter_type(@iter) = BSON_TYPE_DOCUMENT then
+                    begin
+                        if bson_iter_recurse(@iter, @optionsIter) then
+                            parsePlaceOptionsFromBson(optionsIter);
+                    end
+            end;
     end;
 end;
 

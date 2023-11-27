@@ -1,7 +1,6 @@
 const http = require('http');
 const { MongoClient } = require('mongodb');
-
-const MONGO_URL = 'mongodb://localhost';
+const { MONGO_URL } = require('./mongoUrl');
 
 // web server in Node.js for comparison
 async function start() {
