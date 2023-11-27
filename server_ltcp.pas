@@ -1,10 +1,13 @@
 program server_ltcp;
 
+{$mode objfpc}
 {$longstrings on}
 
 uses
     {$ifdef UNIX}cthreads,{$endif}
-    crt, sysutils, lnet, libmongoc, RequestHandler, DbSchema, DeskMeDb;
+    crt, sysutils, lnet, libmongoc, RequestHandler, DeskMeDb,
+    OfficeLocation in 'DBSchema/OfficeLocation.pas',
+    PlaceOptions in 'DBSchema/PlaceOptions.pas';
 
 var
     pool: TDeskMeDbPool;
@@ -44,7 +47,8 @@ begin
         end;
         '/json':
         begin
-            FillChar(officeLocation, SizeOf(officeLocation), 0);
+            officeLocation := TOfficeLocation.Create;
+
             with officeLocation do
             begin
                 _id := 'id12356';
@@ -56,8 +60,8 @@ begin
                 longitude := 43.21;
                 sendICalNotifications := false;
                 notificationEmail := '"notify'#13#10'@myCompany.com"';
-                options := new(PPlaceOptions);
-                with options^ do
+                options := TPlaceOptions.Create;
+                with options do
                 begin
                     availableFromHour := 8;
                     availableUntilHour := 17;
@@ -67,9 +71,9 @@ begin
                 end;
             end;
 
-            json := serializeOfficeLocation(officeLocation);
+            json := officeLocation.Serialize;
 
-            dispose(officeLocation.options);
+            officeLocation.Free;
 
             body := 'HTTP/1.1 200' + CRLF
                 + 'Content-type: application/json' + CRLF
@@ -88,7 +92,15 @@ begin
             bson_destroy(query);
             db.Free;
 
-            json := serializeOfficeLocation(officeLocation);
+            if officeLocation = nil then
+            begin
+                socket.SendMessage('HTTP/1.1 404' + CRLF + 'Content-length: 0' + CRLF + CRLF);
+                exit;
+            end;
+
+            json := officeLocation.Serialize;
+
+            officeLocation.Free;
 
             body := 'HTTP/1.1 200' + CRLF
                 + 'Content-type: application/json' + CRLF
@@ -107,7 +119,15 @@ begin
             bson_destroy(query);
             db.Free;
 
+            if officeLocation = nil then
+            begin
+                socket.SendMessage('HTTP/1.1 404' + CRLF + 'Content-length: 0' + CRLF + CRLF);
+                exit;
+            end;
+
             html := '<!DOCTYPE html><html><h1>' + officeLocation.name + '</h1><p>This location''s address is: ' + officeLocation.address + '</p></html>';
+
+            officeLocation.Free;
 
             body := 'HTTP/1.1 200' + CRLF
                 + 'Content-type: text/html' + CRLF

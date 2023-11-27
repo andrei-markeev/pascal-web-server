@@ -9,25 +9,20 @@ uses
     classes, libmongoc;
 
 type
-    generic TParseFromBsonEvent<T> = function(doc: pbson_t): T;
     generic TMongoDbCollection<T> = class
-    public type
-        TParseFromBson = specialize TParseFromBsonEvent<T>;
     private
         collection: pmongoc_collection_t;
-        parseFromBson: TParseFromBson;
     public
-        constructor Create(client: pmongoc_client_t; dbname, name: pchar; parser: TParseFromBson);
+        constructor Create(client: pmongoc_client_t; dbname, name: pchar);
         destructor Destroy; override;
         function findOne(query: pbson_t): T;
     end;
 
 implementation
 
-constructor TMongoDbCollection.Create(client: pmongoc_client_t; dbname, name: pchar; parser: TParseFromBson);
+constructor TMongoDbCollection.Create(client: pmongoc_client_t; dbname, name: pchar);
 begin
     collection := mongoc_client_get_collection(client, dbname, name);
-    parseFromBson := parser;
 end;
 
 destructor TMongoDbCollection.Destroy;
@@ -44,9 +39,9 @@ begin
     cursor := mongoc_collection_find_with_opts(collection, query, nil, nil);
 
     if mongoc_cursor_next(cursor, @doc) then
-        findOne := parseFromBson(doc)
+        findOne := T.Create(doc)
     else
-        findOne := default(T);
+        findOne := nil;
 
     mongoc_cursor_destroy(cursor);
 end;

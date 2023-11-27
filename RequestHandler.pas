@@ -88,7 +88,7 @@ begin
 
         ParseBuffer(socket);
 
-    until (bytesRead < availableSize) and (parseFrom = freeFrom) or (i > 10);
+    until (bytesRead < availableSize) and (parseFrom = freeFrom);
 end;
 
 procedure TRequestHandler.ParseBuffer(socket: TLSocket);

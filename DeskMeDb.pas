@@ -6,7 +6,7 @@ unit DeskMeDb;
 interface
 
 uses
-    libmongoc, MongoDbCollection, DbSchema, MongoUrl;
+    libmongoc, MongoDbCollection, MongoUrl, OfficeLocation;
 
 type
     TDeskMeDbPool = class
@@ -56,7 +56,7 @@ begin
     //pool := deskmePool.pool;
     //client := mongoc_client_pool_pop(pool);
     client := deskmePool.client;
-    Locations := TOfficeLocationCollection.Create(client, 'deskme', 'locations', @parseOfficeLocationFromBson);
+    Locations := TOfficeLocationCollection.Create(client, 'deskme', 'locations');
 end;
 
 destructor TDeskMeDatabase.Destroy;
