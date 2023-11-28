@@ -5,12 +5,17 @@ program server_ltcp;
 
 uses
     {$ifdef UNIX}cthreads,{$endif}
-    crt, sysutils, lnet, libmongoc, RequestHandler, DeskMeDb,
+    crt, sysutils, classes, lnet, libmongoc,
+    RequestHandler, DeskMeDb, TaskManager,
     OfficeLocation in 'DBSchema/OfficeLocation.pas',
-    PlaceOptions in 'DBSchema/PlaceOptions.pas';
+    PlaceOptions in 'DBSchema/PlaceOptions.pas',
+    LocationAsJson in 'Tasks/LocationAsJson.pas',
+    LocationAsHtml in 'Tasks/LocationAsHtml.pas';
+
 
 var
     pool: TDeskMeDbPool;
+    asyncTaskManager: TTaskManager;
 
 function Max(a, b: integer): integer;
 begin
@@ -26,10 +31,9 @@ var
     html: string;
     json: string;
     body: string;
-    db: TDeskMeDatabase;
     officeLocation: TOfficeLocation;
-    query: pbson_t;
     p: integer;
+    task: TTask;
 begin
     case request.url of
         '/hello':
@@ -85,57 +89,15 @@ begin
         end;
         '/mongo':
         begin
-            db := TDeskMeDatabase.Create(pool);
-            query := bson_new;
-            bson_append_utf8(query, 'name', length('name'), 'Demo location', length('Demo location'));
-            officeLocation := db.Locations.findOne(query);
-            bson_destroy(query);
-            db.Free;
-
-            if officeLocation = nil then
-            begin
-                socket.SendMessage('HTTP/1.1 404' + CRLF + 'Content-length: 0' + CRLF + CRLF);
-                exit;
-            end;
-
-            json := officeLocation.Serialize;
-
-            officeLocation.Free;
-
-            body := 'HTTP/1.1 200' + CRLF
-                + 'Content-type: application/json' + CRLF
-                + 'Content-length: ' + IntToStr(Length(json)) + CRLF
-                + CRLF
-                + json;
-
-            socket.SendMessage(body);
+            task := TLocationAsJsonTask.Create(pool, socket);
+            socket.UserData := task;
+            asyncTaskManager.Enqueue(task);
         end;
         '/mongohtml':
         begin
-            db := TDeskMeDatabase.Create(pool);
-            query := bson_new;
-            bson_append_utf8(query, 'name', length('name'), 'Demo location', length('Demo location'));
-            officeLocation := db.Locations.findOne(query);
-            bson_destroy(query);
-            db.Free;
-
-            if officeLocation = nil then
-            begin
-                socket.SendMessage('HTTP/1.1 404' + CRLF + 'Content-length: 0' + CRLF + CRLF);
-                exit;
-            end;
-
-            html := '<!DOCTYPE html><html><h1>' + officeLocation.name + '</h1><p>This location''s address is: ' + officeLocation.address + '</p></html>';
-
-            officeLocation.Free;
-
-            body := 'HTTP/1.1 200' + CRLF
-                + 'Content-type: text/html' + CRLF
-                + 'Content-length: ' + IntToStr(Length(html)) + CRLF
-                + CRLF
-                + html;
-
-            socket.SendMessage(body);
+            task := TLocationAsHtmlTask.Create(pool, socket);
+            socket.UserData := task;
+            asyncTaskManager.Enqueue(task);
         end;
         '/ipsum':
         begin
@@ -170,10 +132,13 @@ begin
     handler := TRequestHandler.Create;
     handler.OnRequestParsed := @ProcessRequest;
 
+    asyncTaskManager := TTaskManager.Create;
+
     server := TLTcp.Create(nil);
     server.OnError := @handler.Error;
     server.OnReceive := @handler.Receive;
-    server.Timeout := 1000;
+    server.OnDisconnect := @asyncTaskManager.SocketDisconnected;
+    server.Timeout := 25;
 
     if not server.Listen(3000) then exit else Writeln('Listening on port 3000');
 
@@ -181,8 +146,10 @@ begin
 
     repeat
         server.CallAction;
+        asyncTaskManager.FinalizeTasks;
     until canQuit or KeyPressed;
 
+    asyncTaskManager.Free;
     pool.Free;
     server.Free;
     handler.Free;
