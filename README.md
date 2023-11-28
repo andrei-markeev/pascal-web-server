@@ -87,7 +87,7 @@ Importantly, each DB model class should contain a constructor that accepts `pbso
 
 BSON parsing is done with `libbson`, so you can more or less use examples from [official libbson documentation](https://mongoc.org/libbson/current/parsing.html).
 
-Full example of a DB model class: https://github.com/andrei-markeev/pascal-web-server/blob/main/DBSchema/OfficeLocation.pas#L55
+Example parsing from BSON: https://github.com/andrei-markeev/pascal-web-server/blob/main/DBSchema/OfficeLocation.pas#L55
 
 #### Web server
 
@@ -132,10 +132,25 @@ For example:
     end;
 ```
 
+Request object represent a parsed request:
+
+```pascal
+    TRequest = record
+        method: (methodUnknown, methodGET, methodPOST, methodPUT, methodPATCH, methodDELETE);
+        url: string;
+        headers: array of THeader;
+        body: string;
+    end;
+```
+
+If you need to work with MongoDB, use tasks. Otherwise, you can just create a response and send it back to the socket.
+
+#### Tasks
+
 Tasks should be inherited from `TTask`.
 
 Each task is split into two parts:
-- first part is called `Execute` and runs in one of worker threads (each worker thread has it's own connection to MongoDB), this is where you use the previously created `TMyDatabase` and it's collections
+- first part is called `Execute` and runs in one of worker threads (each worker thread has it's own connection to MongoDB), this is where you use `TMyDatabase`
 - second part is called `Finalize` and runs in the main thread, this is where you send response back to the client
 
 For example:
