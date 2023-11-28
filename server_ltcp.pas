@@ -4,27 +4,17 @@ program server_ltcp;
 {$longstrings on}
 
 uses
-    {$ifdef UNIX}cthreads,{$endif}
-    crt, sysutils, classes, lnet, libmongoc,
-    RequestHandler, DeskMeDb, TaskManager,
+    {$ifdef UNIX}cthreads,{$endif} 
+    sysutils, math, classes, lnet,
+    PascalWebServer, RequestHandler, TaskManager, MongoDbPool,
+    MyDb in 'MyDb.pas',
     OfficeLocation in 'DBSchema/OfficeLocation.pas',
     PlaceOptions in 'DBSchema/PlaceOptions.pas',
     LocationAsJson in 'Tasks/LocationAsJson.pas',
     LocationAsHtml in 'Tasks/LocationAsHtml.pas';
 
-
 var
-    pool: TDeskMeDbPool;
-    asyncTaskManager: TTaskManager;
-
-function Max(a, b: integer): integer;
-begin
-    if a > b then Max := a else Max := b;
-end;
-function Min(a, b: integer): integer;
-begin
-    if a < b then Min := a else Min := b;
-end;
+    server: TPascalWebServer;
 
 procedure ProcessRequest(request: TRequest; socket: TLSocket);
 var
@@ -89,15 +79,13 @@ begin
         end;
         '/mongo':
         begin
-            task := TLocationAsJsonTask.Create(pool, socket);
-            socket.UserData := task;
-            asyncTaskManager.Enqueue(task);
+            task := TLocationAsJsonTask.Create(server.pool, socket);
+            server.EnqueueTask(task);
         end;
         '/mongohtml':
         begin
-            task := TLocationAsHtmlTask.Create(pool, socket);
-            socket.UserData := task;
-            asyncTaskManager.Enqueue(task);
+            task := TLocationAsHtmlTask.Create(server.pool, socket);
+            server.EnqueueTask(task);
         end;
         '/ipsum':
         begin
@@ -123,35 +111,12 @@ begin
     end;
 end;
 
-var
-    canQuit: Boolean = false;
-    handler: TRequestHandler;
-    server: TLTcp;
 begin
 
-    handler := TRequestHandler.Create;
-    handler.OnRequestParsed := @ProcessRequest;
+    server := TPascalWebServer.Create(@ProcessRequest);
 
-    asyncTaskManager := TTaskManager.Create;
+    server.Listen(3000);
 
-    server := TLTcp.Create(nil);
-    server.OnError := @handler.Error;
-    server.OnReceive := @handler.Receive;
-    server.OnDisconnect := @asyncTaskManager.SocketDisconnected;
-    server.Timeout := 25;
-
-    if not server.Listen(3000) then exit else Writeln('Listening on port 3000');
-
-    pool := TDeskMeDbPool.Create;
-
-    repeat
-        server.CallAction;
-        asyncTaskManager.FinalizeTasks;
-    until canQuit or KeyPressed;
-
-    asyncTaskManager.Free;
-    pool.Free;
     server.Free;
-    handler.Free;
 
 end.

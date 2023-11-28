@@ -34,11 +34,11 @@ async function start() {
                 options
             }));
         } else if (request.url === "/mongo") {
-            const result = await db.collection('locations').findOne({ name: 'Demo location' });
+            const result = await db.collection('locations').findOne({ name: 'Demo Office' });
             response.writeHead(200, { 'Content-Type': 'application/json' });
             response.end(JSON.stringify(result));
         } else if (request.url === "/mongohtml") {
-            const location = await db.collection('locations').findOne({ name: 'Demo location' });
+            const location = await db.collection('locations').findOne({ name: 'Demo Office' });
             response.writeHead(200, { 'Content-Type': 'text/html' });
             response.end(`<!DOCTYPE html><html><h1>${ location.name }</h1><p>This location's address is: ${location.address}</p></html>`);
         } else {

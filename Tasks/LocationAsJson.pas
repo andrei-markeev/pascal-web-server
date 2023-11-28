@@ -6,7 +6,7 @@ unit LocationAsJson;
 interface
 
 uses
-    sysutils, classes, lnet, libmongoc, TaskManager, DeskMeDb, OfficeLocation;
+    sysutils, classes, lnet, libmongoc, TaskManager, MongoDbPool, MyDb, OfficeLocation;
 
 const
     CRLF = #13#10;
@@ -14,10 +14,10 @@ const
 type
     TLocationAsJsonTask = class(TTask)
     public
-        pool: TDeskMeDbPool;
+        pool: TMongoDbPool;
         socket: TLSocket;
         location: TOfficeLocation;
-        constructor Create(dbPool: TDeskMeDbPool; lSocket: TLSocket);
+        constructor Create(dbPool: TMongoDbPool; lSocket: TLSocket);
         destructor Destroy; override;
         procedure Execute; override;
         procedure Finalize; override;
@@ -25,8 +25,10 @@ type
 
 implementation
 
-constructor TLocationAsJsonTask.Create(dbPool: TDeskMeDbPool; lSocket: TLSocket);
+constructor TLocationAsJsonTask.Create(dbPool: TMongoDbPool; lSocket: TLSocket);
 begin
+    inherited Create(lSocket);
+
     pool := dbPool;
     socket := lSocket;
 end;
@@ -38,10 +40,10 @@ end;
 
 procedure TLocationAsJsonTask.Execute;
 var
-    db: TDeskMeDatabase;
+    db: TMyDatabase;
     query: pbson_t;
 begin
-    db := TDeskMeDatabase.Create(pool);
+    db := TMyDatabase.Create(pool);
     query := bson_new;
     bson_append_utf8(query, 'name', length('name'), 'Demo Office', length('Demo Office'));
     location := db.Locations.findOne(query);

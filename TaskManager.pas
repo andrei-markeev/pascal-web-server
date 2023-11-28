@@ -15,6 +15,7 @@ type
     TTask = class
     public
         status: TTaskStatus;
+        constructor Create(lSocket: TLSocket);
         procedure Execute; virtual; abstract;
         procedure Finalize; virtual; abstract;
     end;
@@ -32,6 +33,11 @@ type
     end;
 
 implementation
+
+constructor TTask.Create(lSocket: TLSocket);
+begin
+    lSocket.UserData := self;
+end;
 
 var
     tasks: TThreadList;

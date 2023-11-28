@@ -11,6 +11,180 @@ Features:
 - bindings for MongoDB C Driver
 - thread pool for MongoDB tasks (dynamically expands / shrinks according to the load profile)
 
+### Getting started
+
+#### Database interface
+
+First, you need to create a database class that provides interface to your MongoDB database.
+
+For example, TMyDatabase below contains two collections, Users and Orders:
+
+```pascal
+unit MyDb;
+
+{$mode objfpc}
+
+interface
+
+uses
+    MongoDbPool, MongoDbCollection, DBSchema;
+
+type
+
+    TMyDatabase = class
+    public type
+        TUserCollection = specialize TMongoDbCollection<TUser>;
+        TOrderCollection = specialize TMongoDbCollection<TOrder>;
+    private
+        pool: TMongoDbPool;
+        client: pointer;
+    public
+        Users: TUserCollection;
+        Orders: TOrderCollection;
+        constructor Create(mongoDbPool: TMongoDbPool);
+        destructor Destroy; override;
+    end;
+
+implementation
+
+constructor TMyDatabase.Create(mongoDbPool: TMongoDbPool);
+begin
+    pool := mongoDbPool;
+    client := pool.GetClientFromThePool;
+
+    Users := TUserCollection.Create(client, 'mydb', 'users');
+    Orders := TOrderCollection.Create(client, 'mydb', 'orders');
+end;
+
+destructor TMyDatabase.Destroy;
+begin
+    Users.Free;
+    Orders.Free;
+
+    pool.ReturnClientToThePool(client);
+    inherited;
+end;
+
+end.
+```
+
+In this example, `DBSchema` is another unit that contains `TOrder` and `TUser` classes, which could look something like this:
+
+```pascal
+type
+    TUser = class
+        _id: string;
+        name: string;
+        // ... other fields
+
+        constructor Create;
+        constructor Create(doc: pbson_t);
+        destructor Destroy; override;
+    end;
+```
+
+Importantly, each DB model class should contain a constructor that accepts `pbson_t` and parses the object from BSON.
+
+BSON parsing is done with `libbson`, so you can more or less use examples from [official libbson documentation](https://mongoc.org/libbson/current/parsing.html).
+
+Full example of a DB model class: https://github.com/andrei-markeev/pascal-web-server/blob/main/DBSchema/OfficeLocation.pas#L55
+
+#### Web server
+
+Running the server is as simple as:
+
+```pascal
+
+var
+    server: TPascalWebServer;
+
+begin
+    server := TPascalWebServer.Create(@ProcessRequest);
+    server.Listen(3000);
+    server.Free;
+end.
+
+```
+
+For handling requests, you need to provide `ProcessRequest` method which would route requests to the correct handlers.
+
+For example:
+
+```pascal
+    procedure ProcessRequest(request: TRequest; socket: TLSocket);
+    var
+        task: TTask;
+    begin
+        case request.url of
+            '/users':
+            begin
+                task := TUsersPageTask.Create(pool, socket);
+                server.EnqueueTask(task);
+            end;
+            '/orders':
+            begin
+                task := TOrdersPageTask.Create(pool, socket);
+                server.EnqueueTask(task);
+            end;
+        else
+            socket.SendMessage('HTTP/1.1 404' + CRLF + 'Content-length: 0' + CRLF + CRLF);
+        end;
+    end;
+```
+
+Tasks should be inherited from `TTask`.
+
+Each task is split into two parts:
+- first part is called `Execute` and runs in one of worker threads (each worker thread has it's own connection to MongoDB), this is where you use the previously created `TMyDatabase` and it's collections
+- second part is called `Finalize` and runs in the main thread, this is where you send response back to the client
+
+For example:
+
+```pascal
+procedure TUserProfilePageTask.Execute;
+var
+    db: TMyDatabase;
+    query: pbson_t;
+begin
+    db := TMyDatabase.Create(pool);
+    query := bson_new;
+    bson_append_utf8(query, '_id', length('_id'), userId, length(userId));
+    user := db.Users.findOne(query);
+    bson_destroy(query);
+    db.Free;
+end;
+
+procedure TUserProfilePageTask.Finalize;
+var
+    i: integer;
+    html: string;
+    body: string;
+begin
+    html := '<!DOCTYPE html><html><h1>Your profile</h1><p><ul>'
+        + '<li><strong>Name:</strong> ' + user.name + '</li>'
+        + '<li><strong>Email:</strong> ' + user.email + '</li>'
+        + '</ul>';
+
+    user.Free;
+
+    body := 'HTTP/1.1 200' + CRLF
+        + 'Content-type: text/html' + CRLF
+        + 'Content-length: ' + IntToStr(Length(html)) + CRLF
+        + CRLF
+        + html;
+
+    if (status <> tsCancelled) and (socket.ConnectionStatus = scConnected) then
+        socket.SendMessage(body);
+
+end;
+```
+
+See full example here: https://github.com/andrei-markeev/pascal-web-server/blob/main/Tasks/LocationAsHtml.pas
+
+**Note**: If you don't need MongoDB, don't use `EnqueueTask`, simply send the data to the socket right from `ProcessRequest`.
+The whole tasks system was devised because [MongoDB C Driver doesn't expose async API](https://www.mongodb.com/community/forums/t/why-not-supply-async-api-in-mongo-c-driver/16260), so we have to deal with thread pool and the corresponding complexity.
+
+
 ### Benchmarks
 
 All tests are run on same machine, in WSL.
@@ -25,7 +199,7 @@ Server should return `<!DOCTYPE html><html><h1>Hello worlde!</h1></html>` with c
 
 **server_ltcp**:
 
-Uses 9.4Mb RAM, throughput 65.9k rps.
+With 10 concurrent connections, uses 9.4Mb RAM, throughput 65.9k rps.
 
 ```
 Running 30s test @ http://localhost:3000/hello
@@ -38,9 +212,9 @@ Requests/sec:  65927.60
 Transfer/sec:      6.98MB
 ```
 
-**server_nodehttp**
+**server_nodehttp**:
 
-Uses 76.1Mb RAM, throughput 13.5k rps.
+With 10 concurrent connections, uses 76.1Mb RAM, throughput 13.5k rps.
 
 ```
 Running 30s test @ http://localhost:3000/hello
@@ -85,7 +259,7 @@ interface OfficeLocation {
 
 **server_ltcp**:
 
-Uses 9.5Mb RAM, throughput 34.5k rps.
+With 10 concurrent connections, uses 9.5Mb RAM, throughput 34.5k rps.
 
 ```
 Running 30s test @ http://localhost:3000/json
@@ -98,7 +272,7 @@ Requests/sec:  34579.20
 Transfer/sec:     24.14MB
 ```
 
-With 150 connections, uses 9.5Mb RAM, throughput increases up to 48.2k rps.
+With 150 concurrent connections, uses 9.5Mb RAM, throughput increases up to 48.2k rps.
 
 ```
 Running 10s test @ http://localhost:3000/json
@@ -112,9 +286,9 @@ Requests/sec:  48254.72
 Transfer/sec:     33.69MB
 ```
 
-**server_nodehttp**
+**server_nodehttp**:
 
-Uses 77.9Mb RAM, throughput 13.1k rps.
+With 10 concurrent connections, uses 77.9Mb RAM, throughput 13.1k rps.
 
 ```
 Running 30s test @ http://localhost:3000/json
@@ -127,7 +301,7 @@ Requests/sec:  13176.90
 Transfer/sec:     10.51MB
 ```
 
-With 150 connections, uses 82.5Mb RAM, throughput *decreases* down to 11.3k rps.
+With 150 concurrent connections, uses 82.5Mb RAM, throughput *decreases* down to 11.3k rps.
 
 ```
 Running 10s test @ http://localhost:3000/json
@@ -138,4 +312,39 @@ Running 10s test @ http://localhost:3000/json
   114003 requests in 10.01s, 90.89MB read
 Requests/sec:  11391.06
 Transfer/sec:      9.08MB
+```
+
+### Fetch JSON from MongoDB
+
+Server should fetch data from MongoDB and serialize it.
+
+**server_ltcp**:
+
+With 150 concurrent connections, uses 37.8Mb RAM, throughput 1.7k rps.
+
+```
+Running 10s test @ http://localhost:3000/mongo
+  2 threads and 150 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency    90.81ms  159.85ms   1.89s    94.74%
+    Req/Sec     0.90k   404.41     1.59k    61.42%
+  17682 requests in 10.03s, 6.27MB read
+  Socket errors: connect 0, read 0, write 0, timeout 21
+Requests/sec:   1763.70
+Transfer/sec:    640.72KB
+```
+
+**server_nodehttp**:
+
+With 150 concurrent connections, uses 113Mb RAM, throughput 1.1k rps.
+
+```
+Running 10s test @ http://localhost:3000/mongo
+  2 threads and 150 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   144.79ms  105.96ms 979.14ms   91.06%
+    Req/Sec   580.20    223.98     0.86k    76.38%
+  11515 requests in 10.02s, 7.73MB read
+Requests/sec:   1149.23
+Transfer/sec:    790.09KB
 ```
